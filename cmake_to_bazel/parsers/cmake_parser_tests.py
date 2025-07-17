@@ -662,6 +662,343 @@ class TestCMakeParser(unittest.TestCase):
         self.assertIn("pthread", app["dependencies"]["PRIVATE"])
 
 
+class TestCMakeParserCustomCommands(unittest.TestCase):
+    """Test cases for custom command and macro handling in CMakeParser."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.parser = CMakeParser()
+    
+    def test_parse_add_custom_command_basic(self):
+        """Test parsing basic add_custom_command."""
+        content = """
+        add_custom_command(
+            OUTPUT generated_file.cpp
+            COMMAND python generate.py
+            DEPENDS input_file.txt
+        )
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_commands']), 1)
+        custom_command = result['custom_commands'][0]
+        
+        self.assertEqual(custom_command['type'], 'add_custom_command')
+        self.assertEqual(len(custom_command['output']), 1)
+        self.assertIn('generated_file.cpp', custom_command['output'])
+        self.assertEqual(len(custom_command['command']), 2)
+        self.assertIn('python', custom_command['command'])
+        self.assertIn('generate.py', custom_command['command'])
+        self.assertEqual(len(custom_command['depends']), 1)
+        self.assertIn('input_file.txt', custom_command['depends'])
+        self.assertIsNotNone(custom_command['warning'])
+    
+    def test_parse_add_custom_command_with_comment(self):
+        """Test parsing add_custom_command with COMMENT."""
+        content = """
+        add_custom_command(
+            OUTPUT generated.h
+            COMMAND echo "Generating header"
+            COMMENT "Generating header file"
+        )
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_commands']), 1)
+        custom_command = result['custom_commands'][0]
+        
+        self.assertEqual(custom_command['comment'], 'Generating header file')
+        self.assertEqual(len(custom_command['output']), 1)
+        self.assertIn('generated.h', custom_command['output'])
+    
+    def test_parse_add_custom_command_with_working_directory(self):
+        """Test parsing add_custom_command with WORKING_DIRECTORY."""
+        content = """
+        add_custom_command(
+            OUTPUT output.txt
+            COMMAND ls -la
+            WORKING_DIRECTORY /tmp
+        )
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_commands']), 1)
+        custom_command = result['custom_commands'][0]
+        
+        self.assertEqual(custom_command['working_directory'], '/tmp')
+        self.assertEqual(len(custom_command['command']), 2)
+        self.assertIn('ls', custom_command['command'])
+        self.assertIn('-la', custom_command['command'])
+    
+    def test_parse_add_custom_target_basic(self):
+        """Test parsing basic add_custom_target."""
+        content = """
+        add_custom_target(docs
+            COMMAND doxygen Doxyfile
+            DEPENDS Doxyfile
+        )
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_targets']), 1)
+        custom_target = result['custom_targets'][0]
+        
+        self.assertEqual(custom_target['type'], 'add_custom_target')
+        self.assertEqual(custom_target['name'], 'docs')
+        self.assertEqual(len(custom_target['command']), 2)
+        self.assertIn('doxygen', custom_target['command'])
+        self.assertIn('Doxyfile', custom_target['command'])
+        self.assertEqual(len(custom_target['depends']), 1)
+        self.assertIn('Doxyfile', custom_target['depends'])
+        self.assertIsNotNone(custom_target['warning'])
+    
+    def test_parse_add_custom_target_with_all(self):
+        """Test parsing add_custom_target with ALL keyword."""
+        content = """
+        add_custom_target(format ALL
+            COMMAND clang-format -i *.cpp
+        )
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_targets']), 1)
+        custom_target = result['custom_targets'][0]
+        
+        self.assertEqual(custom_target['name'], 'format')
+        self.assertTrue(custom_target['all'])
+        self.assertEqual(len(custom_target['command']), 3)
+        self.assertIn('clang-format', custom_target['command'])
+    
+    def test_parse_add_custom_target_with_comment(self):
+        """Test parsing add_custom_target with COMMENT."""
+        content = """
+        add_custom_target(clean_logs
+            COMMAND rm -f *.log
+            COMMENT "Cleaning log files"
+        )
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_targets']), 1)
+        custom_target = result['custom_targets'][0]
+        
+        self.assertEqual(custom_target['comment'], 'Cleaning log files')
+        self.assertEqual(custom_target['name'], 'clean_logs')
+    
+    def test_parse_macro_definition(self):
+        """Test parsing macro definition."""
+        content = """
+        macro(my_macro arg1 arg2)
+            message(STATUS "In macro with args: ${arg1} ${arg2}")
+            set(RESULT "${arg1}_${arg2}")
+        endmacro()
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_macros']), 1)
+        self.assertIn('my_macro', result['custom_macros'])
+        
+        macro = result['custom_macros']['my_macro']
+        self.assertEqual(macro['name'], 'my_macro')
+        self.assertEqual(len(macro['args']), 2)
+        self.assertIn('arg1', macro['args'])
+        self.assertIn('arg2', macro['args'])
+        self.assertIn('message(STATUS', macro['body'])
+        self.assertIn('set(RESULT', macro['body'])
+        self.assertIsNotNone(macro['warning'])
+    
+    def test_parse_macro_definition_no_args(self):
+        """Test parsing macro definition with no arguments."""
+        content = """
+        macro(simple_macro)
+            message("Simple macro called")
+        endmacro()
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_macros']), 1)
+        self.assertIn('simple_macro', result['custom_macros'])
+        
+        macro = result['custom_macros']['simple_macro']
+        self.assertEqual(macro['name'], 'simple_macro')
+        self.assertEqual(len(macro['args']), 0)
+        self.assertIn('message("Simple macro called")', macro['body'])
+    
+    def test_parse_function_definition(self):
+        """Test parsing function definition."""
+        content = """
+        function(my_function target_name source_files)
+            add_executable(${target_name} ${source_files})
+            target_link_libraries(${target_name} common_lib)
+        endfunction()
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_functions']), 1)
+        self.assertIn('my_function', result['custom_functions'])
+        
+        function = result['custom_functions']['my_function']
+        self.assertEqual(function['name'], 'my_function')
+        self.assertEqual(len(function['args']), 2)
+        self.assertIn('target_name', function['args'])
+        self.assertIn('source_files', function['args'])
+        self.assertIn('add_executable', function['body'])
+        self.assertIn('target_link_libraries', function['body'])
+        self.assertIsNotNone(function['warning'])
+    
+    def test_parse_function_definition_no_args(self):
+        """Test parsing function definition with no arguments."""
+        content = """
+        function(setup_common)
+            set(CMAKE_CXX_STANDARD 17)
+            set(CMAKE_CXX_STANDARD_REQUIRED ON)
+        endfunction()
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_functions']), 1)
+        self.assertIn('setup_common', result['custom_functions'])
+        
+        function = result['custom_functions']['setup_common']
+        self.assertEqual(function['name'], 'setup_common')
+        self.assertEqual(len(function['args']), 0)
+        self.assertIn('set(CMAKE_CXX_STANDARD 17)', function['body'])
+    
+    def test_parse_multiple_custom_commands(self):
+        """Test parsing multiple custom commands and targets."""
+        content = """
+        add_custom_command(
+            OUTPUT file1.cpp
+            COMMAND generator1 input1.txt
+        )
+        
+        add_custom_target(build_docs
+            COMMAND doxygen
+        )
+        
+        add_custom_command(
+            OUTPUT file2.cpp
+            COMMAND generator2 input2.txt
+        )
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_commands']), 2)
+        self.assertEqual(len(result['custom_targets']), 1)
+        
+        # Check first custom command
+        cmd1 = result['custom_commands'][0]
+        self.assertIn('file1.cpp', cmd1['output'])
+        self.assertIn('generator1', cmd1['command'])
+        
+        # Check custom target
+        target = result['custom_targets'][0]
+        self.assertEqual(target['name'], 'build_docs')
+        self.assertIn('doxygen', target['command'])
+        
+        # Check second custom command
+        cmd2 = result['custom_commands'][1]
+        self.assertIn('file2.cpp', cmd2['output'])
+        self.assertIn('generator2', cmd2['command'])
+    
+    def test_parse_nested_macro_and_function(self):
+        """Test parsing nested macro and function definitions."""
+        content = """
+        macro(outer_macro)
+            message("In outer macro")
+            
+            function(inner_function)
+                message("In inner function")
+            endfunction()
+            
+        endmacro()
+        
+        function(standalone_function)
+            message("Standalone function")
+        endfunction()
+        """
+        result = self.parser.parse_string(content)
+        
+        self.assertEqual(len(result['custom_macros']), 1)
+        self.assertEqual(len(result['custom_functions']), 2)
+        
+        # Check outer macro
+        self.assertIn('outer_macro', result['custom_macros'])
+        outer_macro = result['custom_macros']['outer_macro']
+        self.assertIn('function(inner_function)', outer_macro['body'])
+        
+        # Check functions
+        self.assertIn('inner_function', result['custom_functions'])
+        self.assertIn('standalone_function', result['custom_functions'])
+    
+    def test_parse_complex_custom_command_example(self):
+        """Test parsing a complex example with custom commands, targets, and regular targets."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(ComplexProject)
+        
+        # Regular targets
+        add_executable(MyApp src/main.cpp)
+        add_library(MyLib src/lib.cpp)
+        
+        # Custom command to generate source
+        add_custom_command(
+            OUTPUT generated_source.cpp
+            COMMAND python ${CMAKE_SOURCE_DIR}/scripts/generate.py
+            DEPENDS ${CMAKE_SOURCE_DIR}/templates/source.template
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Generating source file"
+        )
+        
+        # Custom target for documentation
+        add_custom_target(docs ALL
+            COMMAND doxygen ${CMAKE_SOURCE_DIR}/Doxyfile
+            DEPENDS ${CMAKE_SOURCE_DIR}/Doxyfile
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Building documentation"
+        )
+        
+        # Macro definition
+        macro(add_test_executable name sources)
+            add_executable(${name} ${sources})
+            target_link_libraries(${name} gtest_main)
+        endmacro()
+        
+        # Function definition
+        function(setup_target_properties target)
+            set_target_properties(${target} PROPERTIES
+                CXX_STANDARD 17
+                CXX_STANDARD_REQUIRED ON
+            )
+        endfunction()
+        """
+        result = self.parser.parse_string(content)
+        
+        # Check regular targets
+        self.assertEqual(len(result['targets']), 2)
+        self.assertEqual(result['project'], 'ComplexProject')
+        
+        # Check custom commands
+        self.assertEqual(len(result['custom_commands']), 1)
+        custom_cmd = result['custom_commands'][0]
+        self.assertIn('generated_source.cpp', custom_cmd['output'])
+        self.assertEqual(custom_cmd['working_directory'], '.')
+        self.assertEqual(custom_cmd['comment'], 'Generating source file')
+        
+        # Check custom targets
+        self.assertEqual(len(result['custom_targets']), 1)
+        custom_target = result['custom_targets'][0]
+        self.assertEqual(custom_target['name'], 'docs')
+        self.assertTrue(custom_target['all'])
+        self.assertEqual(custom_target['comment'], 'Building documentation')
+        
+        # Check macros and functions
+        self.assertEqual(len(result['custom_macros']), 1)
+        self.assertEqual(len(result['custom_functions']), 1)
+        self.assertIn('add_test_executable', result['custom_macros'])
+        self.assertIn('setup_target_properties', result['custom_functions'])
+
+
 class TestCMakeParserVariableResolution(unittest.TestCase):
     """Test cases for CMake variable resolution functionality."""
     

@@ -91,6 +91,51 @@ class CMakeParser:
             r'(.*?)\)', # Dependencies and optional scope keywords
             re.DOTALL
         )
+        
+        # Regular expressions for custom commands and macros
+        self.re_add_custom_command = re.compile(
+            r'add_custom_command\s*\(\s*(.*?)\)', 
+            re.DOTALL
+        )
+        
+        self.re_add_custom_target = re.compile(
+            r'add_custom_target\s*\(\s*([^\s\)]+)\s+(.*?)\)', 
+            re.DOTALL
+        )
+        
+        self.re_macro = re.compile(
+            r'macro\s*\(\s*([^\s\)]+)(?:\s+(.*?))?\)', 
+            re.DOTALL
+        )
+        
+        self.re_endmacro = re.compile(
+            r'endmacro\s*\(\s*\)', 
+            re.IGNORECASE
+        )
+        
+        self.re_function = re.compile(
+            r'function\s*\(\s*([^\s\)]+)(?:\s+(.*?))?\)', 
+            re.DOTALL
+        )
+        
+        self.re_endfunction = re.compile(
+            r'endfunction\s*\(\s*\)', 
+            re.IGNORECASE
+        )
+        
+        # Predefined mappings for common custom commands/macros
+        self.custom_command_mappings = {
+            'add_custom_command': self._handle_add_custom_command,
+            'add_custom_target': self._handle_add_custom_target,
+            'macro': self._handle_macro_definition,
+            'function': self._handle_function_definition,
+        }
+        
+        # Storage for custom macros and functions
+        self.custom_macros = {}
+        self.custom_functions = {}
+        self.custom_commands = []
+        self.custom_targets = []
     
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """
@@ -323,6 +368,15 @@ class CMakeParser:
             # Add dependencies to the appropriate scopes
             for scope, deps in dependencies.items():
                 target_entry['dependencies'][scope].extend(deps)
+        
+        # Process custom commands and macros
+        self._process_custom_commands_and_macros(normalized_content)
+        
+        # Add custom commands and macros to result
+        result['custom_commands'] = self.custom_commands.copy()
+        result['custom_targets'] = self.custom_targets.copy()
+        result['custom_macros'] = self.custom_macros.copy()
+        result['custom_functions'] = self.custom_functions.copy()
         
         # Add variables to result for debugging/inspection
         result['variables'] = self.variables.copy()
@@ -783,6 +837,282 @@ class CMakeParser:
                 result[current_scope].append(arg)
         
         return result
+    
+    def _process_custom_commands_and_macros(self, content: str):
+        """
+        Process custom commands and macros in CMake content.
+        
+        Args:
+            content: CMake content as string
+        """
+        # Process add_custom_command
+        custom_command_matches = self.re_add_custom_command.finditer(content)
+        for match in custom_command_matches:
+            args_str = match.group(1)
+            self._handle_add_custom_command(args_str)
+        
+        # Process add_custom_target
+        custom_target_matches = self.re_add_custom_target.finditer(content)
+        for match in custom_target_matches:
+            target_name = match.group(1)
+            args_str = match.group(2) if match.group(2) else ''
+            self._handle_add_custom_target(target_name, args_str)
+        
+        # Process macro definitions
+        self._process_macro_definitions(content)
+        
+        # Process function definitions
+        self._process_function_definitions(content)
+    
+    def _handle_add_custom_command(self, args_str: str):
+        """
+        Handle add_custom_command.
+        
+        Args:
+            args_str: Arguments string for the custom command
+        """
+        args = self._parse_arguments(args_str)
+        
+        custom_command = {
+            'type': 'add_custom_command',
+            'args': args,
+            'output': [],
+            'command': [],
+            'depends': [],
+            'working_directory': None,
+            'comment': None,
+            'warning': None
+        }
+        
+        # Parse common add_custom_command patterns
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            
+            if arg == 'OUTPUT':
+                # Collect output files
+                i += 1
+                while i < len(args) and args[i] not in ['COMMAND', 'DEPENDS', 'WORKING_DIRECTORY', 'COMMENT']:
+                    custom_command['output'].append(args[i])
+                    i += 1
+                continue
+            elif arg == 'COMMAND':
+                # Collect command and arguments
+                i += 1
+                command_parts = []
+                while i < len(args) and args[i] not in ['OUTPUT', 'DEPENDS', 'WORKING_DIRECTORY', 'COMMENT']:
+                    command_parts.append(args[i])
+                    i += 1
+                custom_command['command'].extend(command_parts)
+                continue
+            elif arg == 'DEPENDS':
+                # Collect dependencies
+                i += 1
+                while i < len(args) and args[i] not in ['OUTPUT', 'COMMAND', 'WORKING_DIRECTORY', 'COMMENT']:
+                    custom_command['depends'].append(args[i])
+                    i += 1
+                continue
+            elif arg == 'WORKING_DIRECTORY':
+                # Set working directory
+                i += 1
+                if i < len(args):
+                    custom_command['working_directory'] = args[i]
+                    i += 1
+                continue
+            elif arg == 'COMMENT':
+                # Set comment
+                i += 1
+                if i < len(args):
+                    custom_command['comment'] = args[i]
+                    i += 1
+                continue
+            
+            i += 1
+        
+        # Add warning for unsupported features
+        if not custom_command['output'] and not custom_command['command']:
+            custom_command['warning'] = 'Custom command has no OUTPUT or COMMAND - may not be fully supported in Bazel'
+        elif custom_command['command']:
+            custom_command['warning'] = 'Custom commands require manual conversion to Bazel genrule or custom rule'
+        
+        self.custom_commands.append(custom_command)
+    
+    def _handle_add_custom_target(self, target_name: str, args_str: str):
+        """
+        Handle add_custom_target.
+        
+        Args:
+            target_name: Name of the custom target
+            args_str: Arguments string for the custom target
+        """
+        args = self._parse_arguments(args_str)
+        
+        custom_target = {
+            'type': 'add_custom_target',
+            'name': target_name,
+            'args': args,
+            'command': [],
+            'depends': [],
+            'working_directory': None,
+            'comment': None,
+            'all': False,
+            'warning': 'Custom targets require manual conversion to Bazel rules'
+        }
+        
+        # Parse common add_custom_target patterns
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            
+            if arg == 'ALL':
+                custom_target['all'] = True
+                i += 1
+                continue
+            elif arg == 'COMMAND':
+                # Collect command and arguments
+                i += 1
+                command_parts = []
+                while i < len(args) and args[i] not in ['DEPENDS', 'WORKING_DIRECTORY', 'COMMENT']:
+                    command_parts.append(args[i])
+                    i += 1
+                custom_target['command'].extend(command_parts)
+                continue
+            elif arg == 'DEPENDS':
+                # Collect dependencies
+                i += 1
+                while i < len(args) and args[i] not in ['COMMAND', 'WORKING_DIRECTORY', 'COMMENT']:
+                    custom_target['depends'].append(args[i])
+                    i += 1
+                continue
+            elif arg == 'WORKING_DIRECTORY':
+                # Set working directory
+                i += 1
+                if i < len(args):
+                    custom_target['working_directory'] = args[i]
+                    i += 1
+                continue
+            elif arg == 'COMMENT':
+                # Set comment
+                i += 1
+                if i < len(args):
+                    custom_target['comment'] = args[i]
+                    i += 1
+                continue
+            else:
+                # First non-keyword argument is typically the command
+                if not custom_target['command']:
+                    custom_target['command'].append(arg)
+                i += 1
+        
+        self.custom_targets.append(custom_target)
+    
+    def _process_macro_definitions(self, content: str):
+        """
+        Process macro definitions in CMake content.
+        
+        Args:
+            content: CMake content as string
+        """
+        lines = content.split('\n')
+        i = 0
+        
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Check for macro definition
+            macro_match = self.re_macro.match(line)
+            if macro_match:
+                macro_name = macro_match.group(1)
+                macro_args = macro_match.group(2) if macro_match.group(2) else ''
+                
+                # Collect macro body until endmacro
+                macro_body = []
+                i += 1
+                
+                while i < len(lines):
+                    body_line = lines[i].strip()
+                    
+                    # Check for endmacro
+                    if self.re_endmacro.match(body_line):
+                        break
+                    
+                    macro_body.append(lines[i])
+                    i += 1
+                
+                # Store macro definition
+                self.custom_macros[macro_name] = {
+                    'name': macro_name,
+                    'args': self._parse_arguments(macro_args) if macro_args else [],
+                    'body': '\n'.join(macro_body),
+                    'warning': f'Macro "{macro_name}" requires manual conversion - macros are not directly supported in Bazel'
+                }
+            
+            i += 1
+    
+    def _process_function_definitions(self, content: str):
+        """
+        Process function definitions in CMake content.
+        
+        Args:
+            content: CMake content as string
+        """
+        lines = content.split('\n')
+        i = 0
+        
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Check for function definition
+            function_match = self.re_function.match(line)
+            if function_match:
+                function_name = function_match.group(1)
+                function_args = function_match.group(2) if function_match.group(2) else ''
+                
+                # Collect function body until endfunction
+                function_body = []
+                i += 1
+                
+                while i < len(lines):
+                    body_line = lines[i].strip()
+                    
+                    # Check for endfunction
+                    if self.re_endfunction.match(body_line):
+                        break
+                    
+                    function_body.append(lines[i])
+                    i += 1
+                
+                # Store function definition
+                self.custom_functions[function_name] = {
+                    'name': function_name,
+                    'args': self._parse_arguments(function_args) if function_args else [],
+                    'body': '\n'.join(function_body),
+                    'warning': f'Function "{function_name}" requires manual conversion - functions are not directly supported in Bazel'
+                }
+            
+            i += 1
+    
+    def _handle_macro_definition(self, args_str: str):
+        """
+        Handle macro definition (legacy method for compatibility).
+        
+        Args:
+            args_str: Arguments string for the macro
+        """
+        # This method is kept for compatibility with the mapping system
+        # The actual processing is done in _process_macro_definitions
+        pass
+    
+    def _handle_function_definition(self, args_str: str):
+        """
+        Handle function definition (legacy method for compatibility).
+        
+        Args:
+            args_str: Arguments string for the function
+        """
+        # This method is kept for compatibility with the mapping system
+        # The actual processing is done in _process_function_definitions
+        pass
 
 
 def parse_cmake(file_path: str) -> Dict[str, Any]:
