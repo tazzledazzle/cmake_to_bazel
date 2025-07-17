@@ -15,6 +15,9 @@ class CMakeParser:
     
     def __init__(self):
         """Initialize the CMake parser."""
+        # Dictionary to store CMake variables
+        self.variables = {}
+        
         # Regular expressions for parsing common CMake commands
         self.re_project = re.compile(r'project\s*\(\s*([^\s\)]+)')
         
@@ -23,6 +26,10 @@ class CMakeParser:
         self.re_elseif = re.compile(r'elseif\s*\(\s*(.*?)\s*\)', re.IGNORECASE)
         self.re_else = re.compile(r'else\s*\(\s*\)', re.IGNORECASE)
         self.re_endif = re.compile(r'endif\s*\(\s*\)', re.IGNORECASE)
+        
+        # Regular expressions for variable operations
+        self.re_set = re.compile(r'set\s*\(\s*([^\s\)]+)(?:\s+(.*?))?\)', re.DOTALL)
+        self.re_variable_ref = re.compile(r'\$\{([^}]+)\}')
         
         # Enhanced regex for add_executable to handle various formats
         # Format 1: add_executable(target source1 source2 ...)
@@ -133,19 +140,30 @@ class CMakeParser:
         # Process conditional statements first to get the effective content
         processed_content = self._process_conditional_statements(content)
         
-        # Extract project name
+        # Initialize built-in variables
+        self._initialize_builtin_variables()
+        
+        # Extract project name first (before variable resolution)
         project_match = self.re_project.search(processed_content)
         if project_match:
             result['project'] = project_match.group(1)
+            # Set PROJECT_NAME variable
+            self.variables['PROJECT_NAME'] = project_match.group(1)
+        
+        # Extract and process variable definitions
+        self._extract_variables(processed_content)
+        
+        # Resolve variables in the content
+        resolved_content = self._resolve_variables(processed_content)
         
         # Extract minimum required CMake version
-        version_match = self.re_cmake_minimum_required.search(processed_content)
+        version_match = self.re_cmake_minimum_required.search(resolved_content)
         if version_match:
             result['minimum_required_version'] = version_match.group(1)
         
         # Extract include directories - handle multi-line include_directories
         # First, normalize the content by removing newlines within parentheses
-        normalized_content = self._normalize_multiline_commands(processed_content)
+        normalized_content = self._normalize_multiline_commands(resolved_content)
         include_dirs_matches = self.re_include_directories.finditer(normalized_content)
         for match in include_dirs_matches:
             # Check if there's an optional keyword (AFTER, BEFORE, SYSTEM)
@@ -306,7 +324,149 @@ class CMakeParser:
             for scope, deps in dependencies.items():
                 target_entry['dependencies'][scope].extend(deps)
         
+        # Add variables to result for debugging/inspection
+        result['variables'] = self.variables.copy()
+        
         return result
+    
+    def _initialize_builtin_variables(self):
+        """Initialize built-in CMake variables with default values."""
+        # Common built-in variables
+        self.variables.update({
+            'CMAKE_CURRENT_SOURCE_DIR': '.',
+            'CMAKE_CURRENT_BINARY_DIR': '.',
+            'CMAKE_SOURCE_DIR': '.',
+            'CMAKE_BINARY_DIR': '.',
+            'PROJECT_SOURCE_DIR': '.',
+            'PROJECT_BINARY_DIR': '.',
+            'CMAKE_SYSTEM_NAME': 'Linux',
+            'CMAKE_SYSTEM_VERSION': '1.0',
+            'CMAKE_SYSTEM_PROCESSOR': 'x86_64',
+            'CMAKE_CXX_COMPILER_ID': 'GNU',
+            'CMAKE_C_COMPILER_ID': 'GNU',
+            'CMAKE_BUILD_TYPE': 'Release',
+            'CMAKE_INSTALL_PREFIX': '/usr/local',
+        })
+    
+    def _extract_variables(self, content: str):
+        """
+        Extract variable definitions from CMake content.
+        
+        Args:
+            content: CMake content as string
+        """
+        # First pass: extract all variable definitions without resolving
+        raw_variables = {}
+        set_matches = self.re_set.finditer(content)
+        for match in set_matches:
+            var_name = match.group(1)
+            var_value_str = match.group(2) if match.group(2) else ''
+            
+            # Parse the variable value, handling multiple arguments
+            var_args = self._parse_arguments(var_value_str)
+            
+            # Handle different set() command formats
+            if not var_args:
+                # Empty set() - set the variable to empty string
+                raw_variables[var_name] = ''
+            elif len(var_args) == 1:
+                # Single value - store as-is for now
+                raw_variables[var_name] = var_args[0]
+            else:
+                # Multiple values - join with semicolons (CMake list format)
+                raw_variables[var_name] = ';'.join(var_args)
+        
+        # Second pass: resolve variables in order of definition
+        for var_name, var_value in raw_variables.items():
+            if var_value:
+                # Resolve variables in the value
+                resolved_value = self._resolve_variables(var_value)
+                self.variables[var_name] = resolved_value
+            else:
+                # Empty value
+                self.variables[var_name] = ''
+    
+    def _resolve_variables(self, content: str) -> str:
+        """
+        Resolve variable references in CMake content.
+        
+        Args:
+            content: CMake content with variable references
+            
+        Returns:
+            Content with variables resolved
+        """
+        # Handle nested variable resolution by finding and resolving from innermost to outermost
+        resolved_content = content
+        max_iterations = 10
+        iteration = 0
+        
+        while iteration < max_iterations:
+            # Find all variable references, including nested ones
+            var_refs = self._find_variable_references(resolved_content)
+            if not var_refs:
+                break
+                
+            # Replace variables from innermost to outermost
+            for start, end, var_name in reversed(var_refs):
+                # Resolve the variable name (in case it contains other variables)
+                resolved_var_name = self._resolve_variables(var_name) if '${' in var_name else var_name
+                
+                # Look up the variable value
+                if resolved_var_name in self.variables:
+                    var_value = self.variables[resolved_var_name]
+                else:
+                    # Variable not found - return empty string (CMake behavior)
+                    var_value = ''
+                
+                # Replace the variable reference with its value
+                resolved_content = resolved_content[:start] + var_value + resolved_content[end:]
+            
+            iteration += 1
+        
+        return resolved_content
+    
+    def _find_variable_references(self, content: str) -> List[Tuple[int, int, str]]:
+        """
+        Find all variable references in content, handling nested variables.
+        
+        Args:
+            content: Content to search for variable references
+            
+        Returns:
+            List of tuples (start_pos, end_pos, var_name) for each variable reference
+        """
+        references = []
+        i = 0
+        
+        while i < len(content):
+            # Look for ${
+            if i < len(content) - 1 and content[i:i+2] == '${':
+                start_pos = i
+                i += 2
+                brace_count = 1
+                var_start = i
+                
+                # Find the matching closing brace, handling nested braces
+                while i < len(content) and brace_count > 0:
+                    if content[i] == '{':
+                        brace_count += 1
+                    elif content[i] == '}':
+                        brace_count -= 1
+                    i += 1
+                
+                if brace_count == 0:
+                    # Found complete variable reference
+                    end_pos = i
+                    var_name = content[var_start:i-1]  # Exclude the closing }
+                    references.append((start_pos, end_pos, var_name))
+                else:
+                    # Unmatched braces, skip
+                    i = start_pos + 1
+            else:
+                i += 1
+        
+        return references
     
     def _process_conditional_statements(self, content: str) -> str:
         """

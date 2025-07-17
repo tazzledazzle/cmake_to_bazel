@@ -1,4 +1,7 @@
 # cmake_to_bazel/cmake_to_bazel.bzl
+"""
+Bazel CMake to bazel custom rule
+"""
 
 def _cmake_to_bazel_impl(ctx):
     cmake_file = ctx.file.cmake_file
@@ -10,6 +13,7 @@ def _cmake_to_bazel_impl(ctx):
     )
 
 cmake_to_bazel = rule(
+    1,
     implementation = _cmake_to_bazel_impl,
     attrs = {
         "cmake_file": attr.label(allow_single_file = True),
