@@ -18,6 +18,12 @@ class CMakeParser:
         # Regular expressions for parsing common CMake commands
         self.re_project = re.compile(r'project\s*\(\s*([^\s\)]+)')
         
+        # Regular expressions for conditional statements
+        self.re_if = re.compile(r'if\s*\(\s*(.*?)\s*\)', re.IGNORECASE)
+        self.re_elseif = re.compile(r'elseif\s*\(\s*(.*?)\s*\)', re.IGNORECASE)
+        self.re_else = re.compile(r'else\s*\(\s*\)', re.IGNORECASE)
+        self.re_endif = re.compile(r'endif\s*\(\s*\)', re.IGNORECASE)
+        
         # Enhanced regex for add_executable to handle various formats
         # Format 1: add_executable(target source1 source2 ...)
         # Format 2: add_executable(target SOURCES source1 source2 ...)
@@ -124,19 +130,22 @@ class CMakeParser:
         # Debug: Print the content for debugging
         # print(f"Parsing content: {content}")
         
+        # Process conditional statements first to get the effective content
+        processed_content = self._process_conditional_statements(content)
+        
         # Extract project name
-        project_match = self.re_project.search(content)
+        project_match = self.re_project.search(processed_content)
         if project_match:
             result['project'] = project_match.group(1)
         
         # Extract minimum required CMake version
-        version_match = self.re_cmake_minimum_required.search(content)
+        version_match = self.re_cmake_minimum_required.search(processed_content)
         if version_match:
             result['minimum_required_version'] = version_match.group(1)
         
         # Extract include directories - handle multi-line include_directories
         # First, normalize the content by removing newlines within parentheses
-        normalized_content = self._normalize_multiline_commands(content)
+        normalized_content = self._normalize_multiline_commands(processed_content)
         include_dirs_matches = self.re_include_directories.finditer(normalized_content)
         for match in include_dirs_matches:
             # Check if there's an optional keyword (AFTER, BEFORE, SYSTEM)
@@ -157,7 +166,7 @@ class CMakeParser:
             result['include_directories'].extend(dirs)
         
         # Extract executable targets
-        executable_matches = self.re_add_executable.finditer(content)
+        executable_matches = self.re_add_executable.finditer(normalized_content)
         for match in executable_matches:
             target_name = match.group(1)
             target_options = match.group(2) if match.group(2) else None
@@ -181,7 +190,7 @@ class CMakeParser:
             result['targets'].append(target_entry)
         
         # Extract library targets
-        library_matches = self.re_add_library.finditer(content)
+        library_matches = self.re_add_library.finditer(normalized_content)
         for match in library_matches:
             target_name = match.group(1)
             lib_type = match.group(2) if match.group(2) else 'STATIC'  # Default to STATIC if not specified
@@ -298,6 +307,164 @@ class CMakeParser:
                 target_entry['dependencies'][scope].extend(deps)
         
         return result
+    
+    def _process_conditional_statements(self, content: str) -> str:
+        """
+        Process conditional statements (if/elseif/else/endif) in CMake content.
+        
+        This method evaluates conditional blocks and returns the content with
+        only the active branches included. For simplicity, this implementation
+        assumes all conditions are true (basic implementation).
+        
+        Args:
+            content: CMake content as string
+            
+        Returns:
+            Processed content with conditional statements evaluated
+        """
+        lines = content.split('\n')
+        result_lines = []
+        
+        # Stack to track nested conditional blocks
+        # Each element is a dict with: {'type': 'if'|'elseif'|'else', 'condition': str, 'active': bool}
+        conditional_stack = []
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Check for if statement
+            if_match = self.re_if.match(line)
+            if if_match:
+                condition = if_match.group(1)
+                # For basic implementation, evaluate simple conditions
+                is_active = self._evaluate_condition(condition)
+                conditional_stack.append({
+                    'type': 'if',
+                    'condition': condition,
+                    'active': is_active,
+                    'has_executed': is_active  # Track if any branch has been executed
+                })
+                i += 1
+                continue
+            
+            # Check for elseif statement
+            elseif_match = self.re_elseif.match(line)
+            if elseif_match and conditional_stack:
+                condition = elseif_match.group(1)
+                current_block = conditional_stack[-1]
+                
+                # Only evaluate elseif if no previous branch was executed
+                if not current_block['has_executed']:
+                    is_active = self._evaluate_condition(condition)
+                    current_block['active'] = is_active
+                    current_block['has_executed'] = is_active
+                else:
+                    current_block['active'] = False
+                
+                current_block['type'] = 'elseif'
+                current_block['condition'] = condition
+                i += 1
+                continue
+            
+            # Check for else statement
+            else_match = self.re_else.match(line)
+            if else_match and conditional_stack:
+                current_block = conditional_stack[-1]
+                
+                # Only activate else if no previous branch was executed
+                current_block['active'] = not current_block['has_executed']
+                current_block['type'] = 'else'
+                i += 1
+                continue
+            
+            # Check for endif statement
+            endif_match = self.re_endif.match(line)
+            if endif_match and conditional_stack:
+                conditional_stack.pop()
+                i += 1
+                continue
+            
+            # Regular line - include it if we're in an active block or no conditional block
+            should_include = True
+            if conditional_stack:
+                # Check if all nested conditional blocks are active
+                should_include = all(block['active'] for block in conditional_stack)
+            
+            if should_include:
+                result_lines.append(lines[i])
+            
+            i += 1
+        
+        return '\n'.join(result_lines)
+    
+    def _evaluate_condition(self, condition: str) -> bool:
+        """
+        Evaluate a CMake conditional expression.
+        
+        This is a basic implementation that handles simple conditions.
+        For a full implementation, this would need to handle CMake variables,
+        operators, and complex expressions.
+        
+        Args:
+            condition: The condition string to evaluate
+            
+        Returns:
+            True if the condition is considered true, False otherwise
+        """
+        condition = condition.strip()
+        
+        # Handle empty conditions
+        if not condition:
+            return False
+        
+        # Handle simple boolean values
+        if condition.upper() in ['TRUE', 'ON', 'YES', '1']:
+            return True
+        if condition.upper() in ['FALSE', 'OFF', 'NO', '0', '']:
+            return False
+        
+        # Handle NOT operator
+        if condition.upper().startswith('NOT '):
+            inner_condition = condition[4:].strip()
+            return not self._evaluate_condition(inner_condition)
+        
+        # Handle DEFINED operator
+        if condition.upper().startswith('DEFINED '):
+            # For basic implementation, assume variables are defined
+            return True
+        
+        # Handle string comparisons (basic)
+        if ' STREQUAL ' in condition.upper():
+            parts = condition.split()
+            if len(parts) >= 3:
+                # Basic string equality check
+                left = parts[0].strip('"\'')
+                right = parts[2].strip('"\'')
+                return left == right
+        
+        # Handle version comparisons (basic)
+        if any(op in condition.upper() for op in [' VERSION_GREATER ', ' VERSION_LESS ', ' VERSION_EQUAL ']):
+            # For basic implementation, assume version conditions are true
+            return True
+        
+        # Handle EXISTS operator
+        if condition.upper().startswith('EXISTS '):
+            # For basic implementation, assume files exist
+            return True
+        
+        # Handle variable references (basic)
+        if condition.startswith('${') and condition.endswith('}'):
+            # For basic implementation, assume variables are truthy
+            return True
+        
+        # Handle simple variable names
+        if condition.isalnum() or '_' in condition:
+            # For basic implementation, assume variables are truthy
+            return True
+        
+        # Default to true for unknown conditions (conservative approach)
+        return True
     
     def _normalize_multiline_commands(self, content: str) -> str:
         """

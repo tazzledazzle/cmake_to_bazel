@@ -661,6 +661,271 @@ class TestCMakeParser(unittest.TestCase):
         self.assertIn("HeaderOnlyLib", app["dependencies"]["PRIVATE"])
         self.assertIn("pthread", app["dependencies"]["PRIVATE"])
 
+    def test_parse_conditional_if_true(self):
+        """Test parsing conditional statements with true condition."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(TRUE)
+            add_executable(ConditionalApp src/main.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["name"], "ConditionalApp")
+
+    def test_parse_conditional_if_false(self):
+        """Test parsing conditional statements with false condition."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(FALSE)
+            add_executable(ConditionalApp src/main.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 0)
+
+    def test_parse_conditional_if_else_true(self):
+        """Test parsing if/else statements with true condition."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(TRUE)
+            add_executable(TrueApp src/main.cpp)
+        else()
+            add_executable(FalseApp src/main.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["name"], "TrueApp")
+
+    def test_parse_conditional_if_else_false(self):
+        """Test parsing if/else statements with false condition."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(FALSE)
+            add_executable(TrueApp src/main.cpp)
+        else()
+            add_executable(FalseApp src/main.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["name"], "FalseApp")
+
+    def test_parse_conditional_elseif(self):
+        """Test parsing if/elseif/else statements."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(FALSE)
+            add_executable(FirstApp src/main.cpp)
+        elseif(TRUE)
+            add_executable(SecondApp src/main.cpp)
+        else()
+            add_executable(ThirdApp src/main.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["name"], "SecondApp")
+
+    def test_parse_conditional_nested(self):
+        """Test parsing nested conditional statements."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(TRUE)
+            add_library(OuterLib src/outer.cpp)
+            if(TRUE)
+                add_executable(InnerApp src/main.cpp)
+            endif()
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 2)
+        target_names = [t["name"] for t in result["targets"]]
+        self.assertIn("OuterLib", target_names)
+        self.assertIn("InnerApp", target_names)
+
+    def test_parse_conditional_nested_mixed(self):
+        """Test parsing nested conditional statements with mixed conditions."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(TRUE)
+            add_library(OuterLib src/outer.cpp)
+            if(FALSE)
+                add_executable(SkippedApp src/main.cpp)
+            else()
+                add_executable(IncludedApp src/main.cpp)
+            endif()
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 2)
+        target_names = [t["name"] for t in result["targets"]]
+        self.assertIn("OuterLib", target_names)
+        self.assertIn("IncludedApp", target_names)
+        self.assertNotIn("SkippedApp", target_names)
+
+    def test_parse_conditional_not_operator(self):
+        """Test parsing conditional statements with NOT operator."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(NOT FALSE)
+            add_executable(NotFalseApp src/main.cpp)
+        endif()
+        
+        if(NOT TRUE)
+            add_executable(NotTrueApp src/main.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["name"], "NotFalseApp")
+
+    def test_parse_conditional_string_comparison(self):
+        """Test parsing conditional statements with string comparison."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if("test" STREQUAL "test")
+            add_executable(StringEqualApp src/main.cpp)
+        endif()
+        
+        if("test" STREQUAL "different")
+            add_executable(StringNotEqualApp src/main.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["name"], "StringEqualApp")
+
+    def test_parse_conditional_defined_operator(self):
+        """Test parsing conditional statements with DEFINED operator."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(DEFINED CMAKE_BUILD_TYPE)
+            add_executable(DefinedApp src/main.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["name"], "DefinedApp")
+
+    def test_parse_conditional_variable_reference(self):
+        """Test parsing conditional statements with variable references."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(${CMAKE_BUILD_TYPE})
+            add_executable(VariableApp src/main.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["name"], "VariableApp")
+
+    def test_parse_conditional_version_comparison(self):
+        """Test parsing conditional statements with version comparison."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(CMAKE_VERSION VERSION_GREATER "3.5")
+            add_executable(VersionApp src/main.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["name"], "VersionApp")
+
+    def test_parse_conditional_exists_operator(self):
+        """Test parsing conditional statements with EXISTS operator."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(TestProject)
+        
+        if(EXISTS "${CMAKE_SOURCE_DIR}/src/main.cpp")
+            add_executable(ExistsApp src/main.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "TestProject")
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["name"], "ExistsApp")
+
+    def test_parse_conditional_complex_example(self):
+        """Test parsing a complex example with multiple conditional statements."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(ComplexConditionalProject)
+        
+        # Always included
+        add_library(BaseLib src/base.cpp)
+        
+        if(TRUE)
+            add_library(ConditionalLib src/conditional.cpp)
+            
+            if(FALSE)
+                add_executable(SkippedApp src/skipped.cpp)
+            elseif(TRUE)
+                add_executable(IncludedApp src/included.cpp)
+            else()
+                add_executable(ElseApp src/else.cpp)
+            endif()
+        else()
+            add_library(AlternativeLib src/alternative.cpp)
+        endif()
+        
+        if(NOT FALSE)
+            add_executable(NotFalseApp src/not_false.cpp)
+        endif()
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(result["project"], "ComplexConditionalProject")
+        self.assertEqual(len(result["targets"]), 4)
+        
+        target_names = [t["name"] for t in result["targets"]]
+        self.assertIn("BaseLib", target_names)
+        self.assertIn("ConditionalLib", target_names)
+        self.assertIn("IncludedApp", target_names)
+        self.assertIn("NotFalseApp", target_names)
+        
+        # These should not be included
+        self.assertNotIn("SkippedApp", target_names)
+        self.assertNotIn("ElseApp", target_names)
+        self.assertNotIn("AlternativeLib", target_names)
+
 
 if __name__ == "__main__":
     unittest.main()
