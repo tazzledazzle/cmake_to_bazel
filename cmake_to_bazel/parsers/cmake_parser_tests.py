@@ -387,6 +387,280 @@ class TestCMakeParser(unittest.TestCase):
         self.assertIn("src/lib.cpp", target["sources"])
         self.assertIn("src/lib_utils.cpp", target["sources"])
 
+    def test_parse_target_link_libraries_basic(self):
+        """Test parsing basic target_link_libraries command."""
+        content = """
+        add_executable(MyApp src/main.cpp)
+        add_library(MyLib src/lib.cpp)
+        target_link_libraries(MyApp MyLib)
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 2)
+        
+        # Find the executable target
+        app_target = next(t for t in result["targets"] if t["name"] == "MyApp")
+        self.assertEqual(app_target["name"], "MyApp")
+        self.assertIsInstance(app_target["dependencies"], dict)
+        self.assertEqual(len(app_target["dependencies"]["PRIVATE"]), 1)
+        self.assertIn("MyLib", app_target["dependencies"]["PRIVATE"])
+        self.assertEqual(len(app_target["dependencies"]["PUBLIC"]), 0)
+        self.assertEqual(len(app_target["dependencies"]["INTERFACE"]), 0)
+
+    def test_parse_target_link_libraries_multiple_dependencies(self):
+        """Test parsing target_link_libraries with multiple dependencies."""
+        content = """
+        add_executable(MyApp src/main.cpp)
+        target_link_libraries(MyApp MyLib1 MyLib2 MyLib3)
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 1)
+        
+        target = result["targets"][0]
+        self.assertEqual(target["name"], "MyApp")
+        self.assertIsInstance(target["dependencies"], dict)
+        self.assertEqual(len(target["dependencies"]["PRIVATE"]), 3)
+        self.assertIn("MyLib1", target["dependencies"]["PRIVATE"])
+        self.assertIn("MyLib2", target["dependencies"]["PRIVATE"])
+        self.assertIn("MyLib3", target["dependencies"]["PRIVATE"])
+
+    def test_parse_target_link_libraries_with_public_scope(self):
+        """Test parsing target_link_libraries with PUBLIC scope."""
+        content = """
+        add_library(MyLib src/lib.cpp)
+        target_link_libraries(MyLib PUBLIC ExternalLib)
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 1)
+        
+        target = result["targets"][0]
+        self.assertEqual(target["name"], "MyLib")
+        self.assertIsInstance(target["dependencies"], dict)
+        self.assertEqual(len(target["dependencies"]["PUBLIC"]), 1)
+        self.assertIn("ExternalLib", target["dependencies"]["PUBLIC"])
+        self.assertEqual(len(target["dependencies"]["PRIVATE"]), 0)
+        self.assertEqual(len(target["dependencies"]["INTERFACE"]), 0)
+
+    def test_parse_target_link_libraries_with_private_scope(self):
+        """Test parsing target_link_libraries with PRIVATE scope."""
+        content = """
+        add_library(MyLib src/lib.cpp)
+        target_link_libraries(MyLib PRIVATE InternalLib)
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 1)
+        
+        target = result["targets"][0]
+        self.assertEqual(target["name"], "MyLib")
+        self.assertIsInstance(target["dependencies"], dict)
+        self.assertEqual(len(target["dependencies"]["PRIVATE"]), 1)
+        self.assertIn("InternalLib", target["dependencies"]["PRIVATE"])
+        self.assertEqual(len(target["dependencies"]["PUBLIC"]), 0)
+        self.assertEqual(len(target["dependencies"]["INTERFACE"]), 0)
+
+    def test_parse_target_link_libraries_with_interface_scope(self):
+        """Test parsing target_link_libraries with INTERFACE scope."""
+        content = """
+        add_library(MyLib INTERFACE)
+        target_link_libraries(MyLib INTERFACE HeaderOnlyLib)
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 1)
+        
+        target = result["targets"][0]
+        self.assertEqual(target["name"], "MyLib")
+        self.assertIsInstance(target["dependencies"], dict)
+        self.assertEqual(len(target["dependencies"]["INTERFACE"]), 1)
+        self.assertIn("HeaderOnlyLib", target["dependencies"]["INTERFACE"])
+        self.assertEqual(len(target["dependencies"]["PRIVATE"]), 0)
+        self.assertEqual(len(target["dependencies"]["PUBLIC"]), 0)
+
+    def test_parse_target_link_libraries_mixed_scopes(self):
+        """Test parsing target_link_libraries with mixed scopes."""
+        content = """
+        add_library(MyLib src/lib.cpp)
+        target_link_libraries(MyLib 
+            PUBLIC PublicLib1 PublicLib2
+            PRIVATE PrivateLib1 PrivateLib2
+            INTERFACE InterfaceLib1
+        )
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 1)
+        
+        target = result["targets"][0]
+        self.assertEqual(target["name"], "MyLib")
+        self.assertIsInstance(target["dependencies"], dict)
+        
+        # Check PUBLIC dependencies
+        self.assertEqual(len(target["dependencies"]["PUBLIC"]), 2)
+        self.assertIn("PublicLib1", target["dependencies"]["PUBLIC"])
+        self.assertIn("PublicLib2", target["dependencies"]["PUBLIC"])
+        
+        # Check PRIVATE dependencies
+        self.assertEqual(len(target["dependencies"]["PRIVATE"]), 2)
+        self.assertIn("PrivateLib1", target["dependencies"]["PRIVATE"])
+        self.assertIn("PrivateLib2", target["dependencies"]["PRIVATE"])
+        
+        # Check INTERFACE dependencies
+        self.assertEqual(len(target["dependencies"]["INTERFACE"]), 1)
+        self.assertIn("InterfaceLib1", target["dependencies"]["INTERFACE"])
+
+    def test_parse_target_link_libraries_multiline(self):
+        """Test parsing target_link_libraries with multiline format."""
+        content = """
+        add_executable(MyApp src/main.cpp)
+        target_link_libraries(MyApp
+            MyLib1
+            MyLib2
+            MyLib3
+        )
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 1)
+        
+        target = result["targets"][0]
+        self.assertEqual(target["name"], "MyApp")
+        self.assertIsInstance(target["dependencies"], dict)
+        self.assertEqual(len(target["dependencies"]["PRIVATE"]), 3)
+        self.assertIn("MyLib1", target["dependencies"]["PRIVATE"])
+        self.assertIn("MyLib2", target["dependencies"]["PRIVATE"])
+        self.assertIn("MyLib3", target["dependencies"]["PRIVATE"])
+
+    def test_parse_target_link_libraries_with_system_libraries(self):
+        """Test parsing target_link_libraries with system libraries."""
+        content = """
+        add_executable(MyApp src/main.cpp)
+        target_link_libraries(MyApp pthread m dl)
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 1)
+        
+        target = result["targets"][0]
+        self.assertEqual(target["name"], "MyApp")
+        self.assertIsInstance(target["dependencies"], dict)
+        self.assertEqual(len(target["dependencies"]["PRIVATE"]), 3)
+        self.assertIn("pthread", target["dependencies"]["PRIVATE"])
+        self.assertIn("m", target["dependencies"]["PRIVATE"])
+        self.assertIn("dl", target["dependencies"]["PRIVATE"])
+
+    def test_parse_target_link_libraries_with_quoted_names(self):
+        """Test parsing target_link_libraries with quoted library names."""
+        content = """
+        add_executable(MyApp src/main.cpp)
+        target_link_libraries(MyApp "lib with spaces" 'another lib')
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 1)
+        
+        target = result["targets"][0]
+        self.assertEqual(target["name"], "MyApp")
+        self.assertIsInstance(target["dependencies"], dict)
+        self.assertEqual(len(target["dependencies"]["PRIVATE"]), 2)
+        self.assertIn("lib with spaces", target["dependencies"]["PRIVATE"])
+        self.assertIn("another lib", target["dependencies"]["PRIVATE"])
+
+    def test_parse_target_link_libraries_with_comments(self):
+        """Test parsing target_link_libraries with comments."""
+        content = """
+        add_executable(MyApp src/main.cpp)
+        target_link_libraries(MyApp
+            MyLib1  # Main library
+            MyLib2  # Utility library
+        )
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 1)
+        
+        target = result["targets"][0]
+        self.assertEqual(target["name"], "MyApp")
+        self.assertIsInstance(target["dependencies"], dict)
+        self.assertEqual(len(target["dependencies"]["PRIVATE"]), 2)
+        self.assertIn("MyLib1", target["dependencies"]["PRIVATE"])
+        self.assertIn("MyLib2", target["dependencies"]["PRIVATE"])
+
+    def test_parse_target_link_libraries_multiple_commands(self):
+        """Test parsing multiple target_link_libraries commands for the same target."""
+        content = """
+        add_executable(MyApp src/main.cpp)
+        target_link_libraries(MyApp PUBLIC PublicLib)
+        target_link_libraries(MyApp PRIVATE PrivateLib)
+        target_link_libraries(MyApp INTERFACE InterfaceLib)
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 1)
+        
+        target = result["targets"][0]
+        self.assertEqual(target["name"], "MyApp")
+        self.assertIsInstance(target["dependencies"], dict)
+        
+        # Check that dependencies from multiple commands are accumulated
+        self.assertEqual(len(target["dependencies"]["PUBLIC"]), 1)
+        self.assertIn("PublicLib", target["dependencies"]["PUBLIC"])
+        
+        self.assertEqual(len(target["dependencies"]["PRIVATE"]), 1)
+        self.assertIn("PrivateLib", target["dependencies"]["PRIVATE"])
+        
+        self.assertEqual(len(target["dependencies"]["INTERFACE"]), 1)
+        self.assertIn("InterfaceLib", target["dependencies"]["INTERFACE"])
+
+    def test_parse_target_link_libraries_nonexistent_target(self):
+        """Test parsing target_link_libraries for a non-existent target."""
+        content = """
+        add_executable(MyApp src/main.cpp)
+        target_link_libraries(NonExistentTarget MyLib)
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 1)
+        
+        # The target_link_libraries command should be ignored for non-existent targets
+        target = result["targets"][0]
+        self.assertEqual(target["name"], "MyApp")
+        # Dependencies should still be a list (not converted to dict) since no target_link_libraries was applied
+        self.assertIsInstance(target["dependencies"], list)
+        self.assertEqual(len(target["dependencies"]), 0)
+
+    def test_parse_target_link_libraries_complex_example(self):
+        """Test parsing a complex example with multiple targets and dependencies."""
+        content = """
+        cmake_minimum_required(VERSION 3.10)
+        project(ComplexProject)
+        
+        # Create libraries
+        add_library(CoreLib src/core.cpp)
+        add_library(UtilLib src/util.cpp)
+        add_library(HeaderOnlyLib INTERFACE)
+        
+        # Create executable
+        add_executable(MyApp src/main.cpp)
+        
+        # Set up dependencies
+        target_link_libraries(CoreLib PUBLIC UtilLib)
+        target_link_libraries(HeaderOnlyLib INTERFACE CoreLib)
+        target_link_libraries(MyApp PRIVATE CoreLib HeaderOnlyLib pthread)
+        """
+        result = self.parser.parse_string(content)
+        self.assertEqual(len(result["targets"]), 4)
+        
+        # Check CoreLib dependencies
+        core_lib = next(t for t in result["targets"] if t["name"] == "CoreLib")
+        self.assertIsInstance(core_lib["dependencies"], dict)
+        self.assertEqual(len(core_lib["dependencies"]["PUBLIC"]), 1)
+        self.assertIn("UtilLib", core_lib["dependencies"]["PUBLIC"])
+        
+        # Check HeaderOnlyLib dependencies
+        header_lib = next(t for t in result["targets"] if t["name"] == "HeaderOnlyLib")
+        self.assertIsInstance(header_lib["dependencies"], dict)
+        self.assertEqual(len(header_lib["dependencies"]["INTERFACE"]), 1)
+        self.assertIn("CoreLib", header_lib["dependencies"]["INTERFACE"])
+        
+        # Check MyApp dependencies
+        app = next(t for t in result["targets"] if t["name"] == "MyApp")
+        self.assertIsInstance(app["dependencies"], dict)
+        self.assertEqual(len(app["dependencies"]["PRIVATE"]), 3)
+        self.assertIn("CoreLib", app["dependencies"]["PRIVATE"])
+        self.assertIn("HeaderOnlyLib", app["dependencies"]["PRIVATE"])
+        self.assertIn("pthread", app["dependencies"]["PRIVATE"])
+
 
 if __name__ == "__main__":
     unittest.main()

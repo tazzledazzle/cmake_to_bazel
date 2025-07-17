@@ -67,6 +67,17 @@ class CMakeParser:
         )
         
         self.re_cmake_minimum_required = re.compile(r'cmake_minimum_required\s*\(\s*VERSION\s+([^\s\)]+)')
+        
+        # Enhanced regex for target_link_libraries to handle various formats
+        # Format 1: target_link_libraries(target lib1 lib2 ...)
+        # Format 2: target_link_libraries(target [INTERFACE|PUBLIC|PRIVATE] lib1 lib2 ...)
+        # Format 3: target_link_libraries(target [INTERFACE|PUBLIC|PRIVATE] [INTERFACE|PUBLIC|PRIVATE] lib1 lib2 ...)
+        self.re_target_link_libraries = re.compile(
+            r'target_link_libraries\s*\(\s*'  # Command name and opening parenthesis
+            r'([^\s\)]+)\s+'  # Target name
+            r'(.*?)\)', # Dependencies and optional scope keywords
+            re.DOTALL
+        )
     
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """
@@ -254,6 +265,38 @@ class CMakeParser:
                         metadata['position'] = position_flag
                     target_entry['include_directories_metadata'][dir_path] = metadata
         
+        # Extract target link libraries (after targets are parsed)
+        target_link_libraries_matches = self.re_target_link_libraries.finditer(normalized_content)
+        for match in target_link_libraries_matches:
+            target_name = match.group(1)
+            dependencies_str = match.group(2) if match.group(2) else ''
+            
+            # Find the target in the targets list
+            target_entry = None
+            for t in result['targets']:
+                if t['name'] == target_name:
+                    target_entry = t
+                    break
+            
+            # If target not found, skip this target_link_libraries command
+            if not target_entry:
+                continue
+            
+            # Parse dependencies with scope handling
+            dependencies = self._parse_target_link_libraries_dependencies(dependencies_str)
+            
+            # Initialize dependencies structure if not present
+            if not isinstance(target_entry['dependencies'], dict):
+                target_entry['dependencies'] = {
+                    'INTERFACE': [],
+                    'PUBLIC': [],
+                    'PRIVATE': []
+                }
+            
+            # Add dependencies to the appropriate scopes
+            for scope, deps in dependencies.items():
+                target_entry['dependencies'][scope].extend(deps)
+        
         return result
     
     def _normalize_multiline_commands(self, content: str) -> str:
@@ -296,6 +339,7 @@ class CMakeParser:
         args = []
         current_arg = ''
         in_quotes = False
+        quote_char = None
         i = 0
         
         while i < len(args_str):
@@ -304,39 +348,49 @@ class CMakeParser:
             # Handle comments - skip everything after # until end of line or end of string
             if char == '#' and not in_quotes:
                 # Add current argument if we have one
-                if current_arg:
-                    args.append(current_arg)
+                if current_arg.strip():
+                    args.append(current_arg.strip())
                     current_arg = ''
                 
                 # Skip to the end of the line or end of string
                 while i < len(args_str) and args_str[i] not in ['\n', '\r']:
                     i += 1
                 
-                # Skip the newline character if present
-                if i < len(args_str) and args_str[i] in ['\n', '\r']:
+                # Continue processing after the newline
+                if i < len(args_str):
                     i += 1
                 continue
             
-            # Handle quotes
-            if char == '"' and (not current_arg or current_arg[-1] != '\\'):
-                in_quotes = not in_quotes
-                current_arg += char
+            # Handle quotes (both single and double)
+            if char in ['"', "'"] and (not current_arg or current_arg[-1] != '\\'):
+                if not in_quotes:
+                    # Starting a quoted string
+                    in_quotes = True
+                    quote_char = char
+                    current_arg += char
+                elif char == quote_char:
+                    # Ending the quoted string
+                    in_quotes = False
+                    quote_char = None
+                    current_arg += char
+                else:
+                    # Different quote character inside quotes
+                    current_arg += char
             elif char.isspace() and not in_quotes:
-                if current_arg:
-                    args.append(current_arg)
+                if current_arg.strip():
+                    args.append(current_arg.strip())
                     current_arg = ''
             else:
                 current_arg += char
             
             i += 1
         
-        if current_arg:
-            args.append(current_arg)
+        if current_arg.strip():
+            args.append(current_arg.strip())
         
         # Clean up arguments (remove quotes, extra whitespace)
         cleaned_args = []
         for arg in args:
-            arg = arg.strip()
             if arg:
                 # Remove surrounding quotes if present
                 if (arg.startswith('"') and arg.endswith('"')) or \
@@ -345,6 +399,39 @@ class CMakeParser:
                 cleaned_args.append(arg)
         
         return cleaned_args
+    
+    def _parse_target_link_libraries_dependencies(self, dependencies_str: str) -> Dict[str, List[str]]:
+        """
+        Parse dependencies from target_link_libraries command with scope handling.
+        
+        Args:
+            dependencies_str: String containing dependencies and optional scope keywords
+            
+        Returns:
+            Dictionary with dependencies organized by scope (INTERFACE, PUBLIC, PRIVATE)
+        """
+        # Initialize result with all scopes
+        result = {
+            'INTERFACE': [],
+            'PUBLIC': [],
+            'PRIVATE': []
+        }
+        
+        # Parse arguments
+        args = self._parse_arguments(dependencies_str)
+        
+        # Current scope - defaults to PRIVATE if no scope is specified
+        current_scope = 'PRIVATE'
+        
+        for arg in args:
+            # Check if this argument is a scope keyword
+            if arg in ['INTERFACE', 'PUBLIC', 'PRIVATE']:
+                current_scope = arg
+            else:
+                # This is a dependency, add it to the current scope
+                result[current_scope].append(arg)
+        
+        return result
 
 
 def parse_cmake(file_path: str) -> Dict[str, Any]:
