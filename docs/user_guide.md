@@ -34,17 +34,20 @@ The CMake to Bazel Transpiler is a tool designed to automate the conversion of C
 #### From Source
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/tazzledazzle/cmake-to-bazel.git
    cd cmake-to-bazel-transpiler
    ```
 
 2. Install dependencies:
+
    ```bash
    pip install -r requirements.txt
    ```
 
 3. Build with Bazel:
+
    ```bash
    bazel build //cmake_to_bazel:main
    ```
@@ -119,6 +122,7 @@ The `mappings` section allows you to define custom mappings from CMake functions
 - `attributes`: A mapping from CMake attributes to Bazel attributes
 
 Example:
+
 ```json
 "add_custom_target": {
   "rule": "genrule",
@@ -135,6 +139,7 @@ Example:
 The `additional_dependencies` section allows you to specify additional dependencies for targets that may not be explicitly stated in the CMake files.
 
 Example:
+
 ```json
 "MyExecutable": [
   "@boost//:filesystem",
@@ -147,6 +152,7 @@ Example:
 The `excluded_targets` section allows you to specify targets that should be excluded from the transpilation process.
 
 Example:
+
 ```json
 [
   "test_target",

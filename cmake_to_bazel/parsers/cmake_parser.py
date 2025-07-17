@@ -470,6 +470,8 @@ class CMakeParser:
         """
         Normalize multi-line CMake commands by removing newlines within parentheses.
         
+        This method handles comments properly by preserving comment boundaries.
+        
         Args:
             content: CMake content as string
             
@@ -478,18 +480,40 @@ class CMakeParser:
         """
         result = []
         paren_level = 0
-        for char in content:
+        in_comment = False
+        i = 0
+        
+        while i < len(content):
+            char = content[i]
+            
             if char == '(':
                 paren_level += 1
                 result.append(char)
+                in_comment = False
             elif char == ')':
                 paren_level -= 1
                 result.append(char)
-            elif char in ['\n', '\r'] and paren_level > 0:
-                # Replace newlines within parentheses with spaces
-                result.append(' ')
+                in_comment = False
+            elif char == '#' and paren_level > 0:
+                # Start of comment within parentheses
+                in_comment = True
+                result.append(char)
+            elif char in ['\n', '\r']:
+                if paren_level > 0:
+                    if in_comment:
+                        # End of comment - preserve the newline to terminate the comment
+                        result.append(char)
+                        in_comment = False
+                    else:
+                        # Replace newlines within parentheses with spaces (but not in comments)
+                        result.append(' ')
+                else:
+                    result.append(char)
             else:
                 result.append(char)
+            
+            i += 1
+        
         return ''.join(result)
     
     def _parse_arguments(self, args_str: str) -> List[str]:
