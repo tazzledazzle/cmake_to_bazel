@@ -1,0 +1,13 @@
+{
+  "kind": "codemodel",
+  "paths": {"build": ".", "source": ".."},
+  "configurations": [
+    {
+      "name": "Debug",
+      "targets": [
+        {"name": "MyLib", "id": "mylib-id", "jsonFile": "target-mylib.json"},
+        {"name": "MyApp", "id": "myapp-id", "jsonFile": "target-myapp.json"}
+      ]
+    }
+  ]
+}

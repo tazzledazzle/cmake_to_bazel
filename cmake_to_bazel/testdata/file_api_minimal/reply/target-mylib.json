@@ -1,0 +1,8 @@
+{
+  "name": "MyLib",
+  "id": "mylib-id",
+  "type": "STATIC_LIBRARY",
+  "sources": [
+    {"path": "src/lib.cpp"}
+  ]
+}

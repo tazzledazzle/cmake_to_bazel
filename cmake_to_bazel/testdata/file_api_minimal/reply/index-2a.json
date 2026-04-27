@@ -1,0 +1,12 @@
+{
+  "cmake": {
+    "version": {"string": "3.28.0", "major": 3, "minor": 28, "patch": 0}
+  },
+  "objects": [
+    {
+      "kind": "codemodel",
+      "version": {"major": 2, "minor": 7},
+      "jsonFile": "codemodel-v2-minimal.json"
+    }
+  ]
+}

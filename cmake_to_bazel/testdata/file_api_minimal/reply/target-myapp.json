@@ -1,0 +1,19 @@
+{
+  "name": "MyApp",
+  "id": "myapp-id",
+  "type": "EXECUTABLE",
+  "sources": [
+    {"path": "src/main.cpp"},
+    {"path": "src/helper.cpp"}
+  ],
+  "link": {
+    "language": "CXX",
+    "libraries": [
+      {
+        "backtrace": 1,
+        "fragment": "MyLib",
+        "target": {"id": "mylib-id"}
+      }
+    ]
+  }
+}
