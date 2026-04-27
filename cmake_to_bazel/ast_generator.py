@@ -1,7 +1,7 @@
 # cmake_to_bazel/ast_generator.py
 
 from typing import Dict, List, Any, Optional
-from ast_nodes import (
+from cmake_to_bazel.ast_nodes import (
     CMakeAST, ProjectNode, IncludeDirectoryNode, SourceFileNode,
     DependencyNode, TargetIncludeDirectoryNode, TargetNode,
     ExecutableTargetNode, LibraryTargetNode, VariableNode,

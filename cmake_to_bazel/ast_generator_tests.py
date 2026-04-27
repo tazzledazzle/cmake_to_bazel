@@ -1,7 +1,8 @@
 # cmake_to_bazel/ast_generator_tests.py
 
 import unittest
-from ast_generator import ASTGenerator
+
+from cmake_to_bazel.ast_generator import ASTGenerator
 
 
 class TestASTGenerator(unittest.TestCase):
@@ -13,7 +14,7 @@ class TestASTGenerator(unittest.TestCase):
     
     def test_generate_ast_with_empty_content(self):
         """Test AST generation with empty parsed content."""
-        from ast_nodes import CMakeAST
+        from cmake_to_bazel.ast_nodes import CMakeAST
         
         parsed_content = {}
         ast = self.ast_generator.generate_ast(parsed_content)

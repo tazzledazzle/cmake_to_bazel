@@ -1,11 +1,22 @@
 # cmake_to_bazel/ast_nodes_tests.py
 
 import unittest
-from ast_nodes import (
-    ProjectNode, IncludeDirectoryNode, SourceFileNode, DependencyNode,
-    TargetIncludeDirectoryNode, TargetNode, ExecutableTargetNode,
-    LibraryTargetNode, VariableNode, CustomCommandNode, CustomTargetNode,
-    CustomMacroNode, CustomFunctionNode, CMakeAST
+
+from cmake_to_bazel.ast_nodes import (
+    CMakeAST,
+    CustomCommandNode,
+    CustomFunctionNode,
+    CustomMacroNode,
+    CustomTargetNode,
+    DependencyNode,
+    ExecutableTargetNode,
+    IncludeDirectoryNode,
+    LibraryTargetNode,
+    ProjectNode,
+    SourceFileNode,
+    TargetIncludeDirectoryNode,
+    TargetNode,
+    VariableNode,
 )
 
 

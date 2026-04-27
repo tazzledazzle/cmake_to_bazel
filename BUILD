@@ -1,14 +1,25 @@
-# cmake_to_bazel/BUILD
-
 load("//cmake_to_bazel:cmake_to_bazel.bzl", "cmake_to_bazel")
 
-py_binary(
+exports_files([
+    "requirements.txt",
+    "testfiles/CMakeLists.txt",
+])
+
+filegroup(
+    name = "e2e_transpile_data",
+    srcs = [
+        "//docs/examples/simple:BUILD.expected",
+        "//docs/examples/simple:CMakeLists.txt",
+    ] + glob(["testfiles/**"]),
+    visibility = ["//visibility:public"],
+)
+
+alias(
     name = "main",
-    srcs = ["parsers/cmake_parser.py"],
+    actual = "//cmake_to_bazel:cli",
 )
 
 cmake_to_bazel(
     name = "generate_bazel_build",
-    cmake_file = "testfiles/CMakeLists.txt",
-    output_dir = "test-output",
+    cmake_file = "//:testfiles/CMakeLists.txt",
 )

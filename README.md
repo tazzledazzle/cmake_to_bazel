@@ -38,8 +38,9 @@ A Python-based tool that automatically converts CMake build configurations to Ba
 
 3. Build with Bazel:
    ```bash
-   bazel build //cmake_to_bazel:main
+   bazel build //:main
    ```
+   (`//:main` is an alias to `//cmake_to_bazel:cli`.)
 
 ### Option 2: Install with pip (coming soon)
 
@@ -57,17 +58,18 @@ Convert a single CMakeLists.txt file to a Bazel BUILD file:
 python -m cmake_to_bazel.main /path/to/CMakeLists.txt /output/directory
 ```
 
-Or use the Bazel rule:
+Or use the Bazel rule (from this repository):
 
 ```python
-load("@cmake_to_bazel//:cmake_to_bazel.bzl", "cmake_to_bazel")
+load("//cmake_to_bazel:cmake_to_bazel.bzl", "cmake_to_bazel")
 
 cmake_to_bazel(
     name = "convert_cmake",
-    cmake_file = "path/to/CMakeLists.txt",
-    output_dir = "bazel_output",
+    cmake_file = "//:testfiles/CMakeLists.txt",
 )
 ```
+
+Generated file: `bazel-bin/.../convert_cmake/BUILD` (one `BUILD` per rule; `output` is implicit from the rule name).
 
 ### Command Line Options
 
@@ -133,12 +135,17 @@ add_library(MyLib src/lib.cpp)
 target_link_libraries(MyApp MyLib)
 ```
 
-**Generated BUILD file**:
+**Generated BUILD file** (libraries are emitted before binaries):
+
 ```python
 cc_library(
     name = "MyLib",
-    srcs = ["src/lib.cpp"],
-    includes = ["include"],
+    srcs = [
+        "src/lib.cpp",
+    ],
+    includes = [
+        "include",
+    ],
 )
 
 cc_binary(
@@ -147,8 +154,12 @@ cc_binary(
         "src/main.cpp",
         "src/helper.cpp",
     ],
-    includes = ["include"],
-    deps = [":MyLib"],
+    includes = [
+        "include",
+    ],
+    deps = [
+        ":MyLib",
+    ],
 )
 ```
 

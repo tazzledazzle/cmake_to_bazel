@@ -49,8 +49,10 @@ The CMake to Bazel Transpiler is a tool designed to automate the conversion of C
 3. Build with Bazel:
 
    ```bash
-   bazel build //cmake_to_bazel:main
+   bazel build //:main
    ```
+
+   This builds the `cli` binary (`//cmake_to_bazel:cli`). A supported-subset checklist lives in [supported_subset.md](supported_subset.md).
 
 #### Using pip (coming soon)
 
@@ -207,7 +209,8 @@ The transpiler generates the following Bazel rules:
 
 - `cc_binary`: For executable targets
 - `cc_library`: For library targets
-- `cc_test`: For test targets
+
+`cc_test` and other rule types are not emitted yet; add them manually or extend the emitter.
 
 ### File Generation Rules
 
